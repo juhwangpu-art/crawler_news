@@ -38,8 +38,7 @@ DB_FILE = Path(__file__).parent / "news.db"
 CACHE_FILE = Path(__file__).parent / ".notion_synced.txt"
 
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
-# 데이터베이스 ID. 기본값은 Crawler_News 페이지 아래의 새 뉴스 DB (2026-07-04 재생성).
-# 다른 DB로 바꾸려면 환경변수 NOTION_DB_ID 로 덮어쓰기.
+# 뉴스 DB ID. 환경변수 NOTION_DB_ID 로 덮어쓸 수 있다.
 NOTION_DB_ID = os.environ.get(
     "NOTION_DB_ID", "REDACTED_NOTION_DB_ID"
 )
@@ -304,11 +303,22 @@ def _h3(text):
     return {"type": "heading_3", "heading_3": {"rich_text": _text(text)}}
 
 
-def _bullet(text):
-    return {
-        "type": "bulleted_list_item",
-        "bulleted_list_item": {"rich_text": _text(text)},
-    }
+def _bullet(text, color=None):
+    """color: Notion 유효 색상. 예: 'red', 'red_background', 'default'.
+    None이면 색 미지정."""
+    body = {"rich_text": _text(text)}
+    if color:
+        body["color"] = color
+    return {"type": "bulleted_list_item", "bulleted_list_item": body}
+
+
+# 키워드 그룹 색상을 Notion multi-select 태그와 동일한 톤으로 보이도록
+# _background variant 사용. (multi-select 태그도 배경 하이라이트 스타일)
+def _kw_bullet_color(kw):
+    base = config.KEYWORD_COLORS.get(kw)
+    if not base or base == "default":
+        return "default"
+    return f"{base}_background"
 
 
 def _para(text):
@@ -345,16 +355,25 @@ def build_summary_blocks(stats, last_updated_iso):
     blocks.append(_h2("📥 수집 현황"))
     blocks.append(_bullet(f"총 수집: {stats['total']:,}건"))
     blocks.append(_bullet(f"오늘 수집(KST): {stats['today']:,}건"))
-    # 4) 감성 분포
+    # 4) 감성 분포 — 라벨별 색상
     blocks.append(_h2("😊 감성 자동 분류"))
+    _senti_color = {
+        "👍 긍정": "green_background",
+        "👎 부정": "red_background",
+        "· 중립": "gray_background",
+    }
     for label in ("👍 긍정", "👎 부정", "· 중립"):
         blocks.append(_bullet(
-            f"{label}: {stats['sentiment'].get(label, 0):,}건"
+            f"{label}: {stats['sentiment'].get(label, 0):,}건",
+            color=_senti_color[label],
         ))
-    # 5) 키워드별 (config 순서 유지)
+    # 5) 키워드별 (config 순서 유지) — 그룹 색상 적용
     blocks.append(_h2("🏷️ 키워드별 기사 수"))
     for kw in config.KEYWORDS:
-        blocks.append(_bullet(f"{kw}: {stats['keywords'].get(kw, 0):,}건"))
+        blocks.append(_bullet(
+            f"{kw}: {stats['keywords'].get(kw, 0):,}건",
+            color=_kw_bullet_color(kw),
+        ))
     # 6) 매체 상위 20
     blocks.append(_h2("📺 매체별 기사 수 (상위 20)"))
     top20 = sorted(stats["press"].items(), key=lambda x: -x[1])[:20]

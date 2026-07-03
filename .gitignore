@@ -13,3 +13,5 @@ news.db
 # IDE
 .vscode/
 .idea/
+# 사내 배포 문서 (조직 정보 포함, GitHub 노출 방지)
+static/*.html
