@@ -38,7 +38,7 @@ DB_FILE = Path(__file__).parent / "news.db"
 CACHE_FILE = Path(__file__).parent / ".notion_synced.txt"
 
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
-# 데이터베이스 ID. 기본값은 juhwani 워크스페이스의 Crawler_News DB.
+# 데이터베이스 ID. 기본값은 Crawler_News 페이지 아래의 새 뉴스 DB (2026-07-04 재생성).
 # 다른 DB로 바꾸려면 환경변수 NOTION_DB_ID 로 덮어쓰기.
 NOTION_DB_ID = os.environ.get(
     "NOTION_DB_ID", "REDACTED_NOTION_DB_ID"
