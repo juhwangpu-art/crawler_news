@@ -207,20 +207,6 @@ with st.sidebar:
     if _last_notion:
         st.caption(f"마지막 Notion 동기화: {fmt_dt(_last_notion)}")
 
-    st.markdown(
-        "<a href='/app/static/report.html' target='_blank' "
-        "style='display:block;text-align:center;padding:6px 10px;"
-        "background:#1a2a4f;color:white;border-radius:6px;"
-        "font-size:13px;text-decoration:none;margin-top:6px;'>"
-        "📄 구현 리포트 보기</a>"
-        "<a href='/app/static/deploy.html' target='_blank' "
-        "style='display:block;text-align:center;padding:6px 10px;"
-        "background:#c8206e;color:white;border-radius:6px;"
-        "font-size:13px;text-decoration:none;margin-top:6px;'>"
-        "📘 배포 가이드 보기</a>",
-        unsafe_allow_html=True,
-    )
-
     st.divider()
     st.subheader("📊 수집 현황")
     senti = db.sentiment_counts()
