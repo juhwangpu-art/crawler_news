@@ -33,7 +33,6 @@ jobs:
       - name: Crawl and sync to Notion
         env:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          # NOTION_DB_ID를 secret으로 넣으려면 아래 주석 해제.
-          # 기본값이 코드에 있으니 안 넣어도 동작.
-          # NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+          NOTION_SUMMARY_PAGE_ID: ${{ secrets.NOTION_SUMMARY_PAGE_ID }}
         run: python run_headless.py

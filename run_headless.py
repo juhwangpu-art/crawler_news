@@ -48,9 +48,12 @@ def main():
     token = os.environ.get("NOTION_TOKEN")
     if not token:
         raise NotionTokenMissing("NOTION_TOKEN 환경변수 미설정")
+    db_id = os.environ.get("NOTION_DB_ID") or NOTION_DB_ID
+    if not db_id:
+        raise NotionTokenMissing("NOTION_DB_ID 환경변수 미설정")
 
     notion = Client(auth=token)
-    ds_id = get_data_source_id(notion, NOTION_DB_ID)
+    ds_id = get_data_source_id(notion, db_id)
 
     # 한 번의 순회로 기존 URL 집합 + 통계용 raw article 리스트 확보
     existing_articles = fetch_all_articles(notion, ds_id)
@@ -86,7 +89,7 @@ def main():
         row = to_db_row(a, a["keyword"])
         try:
             notion.pages.create(
-                parent={"database_id": NOTION_DB_ID},
+                parent={"database_id": db_id},
                 properties=build_page(row),
             )
             added += 1

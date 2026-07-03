@@ -83,15 +83,18 @@ def main():
     token = os.environ.get("NOTION_TOKEN")
     if not token:
         raise NotionTokenMissing("환경변수 NOTION_TOKEN 미설정")
+    db_id = os.environ.get("NOTION_DB_ID") or NOTION_DB_ID
+    if not db_id:
+        raise NotionTokenMissing("환경변수 NOTION_DB_ID 미설정")
 
     notion = Client(auth=token)
     db_map = fetch_db_first_seen()
     print(f"SQLite 기사 총 {len(db_map)}건")
-    print(f"→ Notion DB({NOTION_DB_ID[-12:]}...) 페이지 순회 시작...")
+    print(f"→ Notion DB({db_id[-12:]}...) 페이지 순회 시작...")
 
     total = 0
     matched, ok, updated, failed, no_url, no_dbmatch = 0, 0, 0, 0, 0, 0
-    for page_id, url, notion_date in iter_notion_pages(notion, NOTION_DB_ID):
+    for page_id, url, notion_date in iter_notion_pages(notion, db_id):
         total += 1
         if not url:
             no_url += 1

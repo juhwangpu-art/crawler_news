@@ -38,16 +38,13 @@ DB_FILE = Path(__file__).parent / "news.db"
 CACHE_FILE = Path(__file__).parent / ".notion_synced.txt"
 
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
-# 뉴스 DB ID. 환경변수 NOTION_DB_ID 로 덮어쓸 수 있다.
-NOTION_DB_ID = os.environ.get(
-    "NOTION_DB_ID", "REDACTED_NOTION_DB_ID"
-)
-# 요약 대시보드 페이지 ID (Crawler_News 컨테이너 페이지).
-# 코드가 이 페이지의 특정 sentinel heading 아래만 재작성하므로,
-# 위쪽에 두는 수동 콘텐츠·인라인 DB 뷰는 건드리지 않는다.
-NOTION_SUMMARY_PAGE_ID = os.environ.get(
-    "NOTION_SUMMARY_PAGE_ID", "REDACTED_NOTION_PAGE_ID"
-)
+# 필수 환경변수 — 값이 없으면 사용 지점에서 명확한 에러로 알림:
+#   NOTION_TOKEN            — Integration secret (ntn_...)
+#   NOTION_DB_ID            — 뉴스 DB ID
+#   NOTION_SUMMARY_PAGE_ID  — 요약 대시보드 페이지 ID (Crawler_News 컨테이너 페이지).
+#                             코드가 이 페이지의 특정 sentinel heading 아래만 재작성.
+NOTION_DB_ID = os.environ.get("NOTION_DB_ID")
+NOTION_SUMMARY_PAGE_ID = os.environ.get("NOTION_SUMMARY_PAGE_ID")
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
 
@@ -158,6 +155,9 @@ def sync(backfill=False):
             "https://www.notion.so/my-integrations 에서 통합 앱을 만들고 "
             "Internal Integration Token(secret_xxxxx)을 발급받은 뒤 등록해 주세요."
         )
+    db_id = os.environ.get("NOTION_DB_ID") or NOTION_DB_ID
+    if not db_id:
+        raise NotionTokenMissing("환경변수 NOTION_DB_ID 미설정.")
 
     notion = Client(auth=token)
     synced = load_synced_urls()
@@ -185,7 +185,7 @@ def sync(backfill=False):
     for i, row in enumerate(to_add, 1):
         try:
             notion.pages.create(
-                parent={"database_id": NOTION_DB_ID},
+                parent={"database_id": db_id},
                 properties=build_page(row),
             )
             synced.add(row["url"])
@@ -442,11 +442,16 @@ def update_summary_page(page_id=None, articles=None):
     token = os.environ.get("NOTION_TOKEN") or NOTION_TOKEN
     if not token:
         raise NotionTokenMissing("환경변수 NOTION_TOKEN 미설정")
-    page_id = page_id or NOTION_SUMMARY_PAGE_ID
+    page_id = page_id or os.environ.get("NOTION_SUMMARY_PAGE_ID") or NOTION_SUMMARY_PAGE_ID
+    if not page_id:
+        raise NotionTokenMissing("환경변수 NOTION_SUMMARY_PAGE_ID 미설정")
+    db_id = os.environ.get("NOTION_DB_ID") or NOTION_DB_ID
+    if not db_id:
+        raise NotionTokenMissing("환경변수 NOTION_DB_ID 미설정")
 
     notion = Client(auth=token)
     if articles is None:
-        ds_id = get_data_source_id(notion, NOTION_DB_ID)
+        ds_id = get_data_source_id(notion, db_id)
         articles = fetch_all_articles(notion, ds_id)
 
     stats = aggregate_stats(articles)
