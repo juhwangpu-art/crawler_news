@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# 로컬 상태 (클라우드에서는 Notion을 원본으로 사용)
+news.db
+.notion_synced.txt
+
+# Streamlit 로컬 캐시
+.streamlit/secrets.toml
+
+# IDE
+.vscode/
+.idea/

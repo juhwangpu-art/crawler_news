@@ -1,0 +1,39 @@
+name: Crawl and sync to Notion
+
+# 30분마다 실행. GitHub Actions cron은 정확한 시각을 보장하지 않고
+# 실제로는 5~15분 지연되는 경우가 잦다. 뉴스 수집엔 문제 없음.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}   # 수동 실행 버튼
+
+# 크론이 겹칠 때 이전 실행을 취소하지 말고 큐잉 (한 사이클씩 순차 실행)
+concurrency:
+  group: crawl
+  cancel-in-progress: false
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Crawl and sync to Notion
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          # NOTION_DB_ID를 secret으로 넣으려면 아래 주석 해제.
+          # 기본값이 코드에 있으니 안 넣어도 동작.
+          # NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+        run: python run_headless.py
