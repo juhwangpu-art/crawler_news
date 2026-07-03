@@ -1,29 +1,25 @@
 # -*- coding: utf-8 -*-
-"""수집된 기사를 Notion 데이터베이스로 동기화.
+"""Notion 데이터베이스·요약 페이지 관리 유틸.
 
-사용법:
-  # 최초 1회 환경변수 세팅 (PowerShell)
-  $env:NOTION_TOKEN = "secret_xxxxx"
-  $env:NOTION_DB_ID = "REDACTED_NOTION_DB_ID"
+`run_headless.py`에서 크롤 파이프라인의 끝단으로 호출되어
+- 기사 push 시 정규 property 포맷을 만드는 `build_page`
+- Notion DB 페이지 전체 조회 `fetch_all_articles`
+- 통계 집계 `aggregate_stats`
+- 요약 대시보드 페이지 갱신 `update_summary_page`
+등을 제공한다.
 
-  # 실행 (신규 기사만 append)
-  python sync_notion.py
+로컬 SQLite와 사용자 대시보드는 이 모듈과 무관하며 별도 폴더
+`crawler_news_local/` 에서만 관리한다.
 
-  # 전체 백필 (처음 한 번만)
-  python sync_notion.py --backfill
-
-주기적 실행을 위해 Windows 작업 스케줄러에 등록하거나
-Streamlit 사이드바 버튼에서 호출할 수 있다.
+CLI (요약 페이지만 갱신하고 종료):
+  python sync_notion.py --summary-only
 """
 import argparse
 import datetime
-import json
 import os
-import sqlite3
 import sys
 import time
 from collections import Counter
-from pathlib import Path
 
 try:
     from notion_client import Client
@@ -32,10 +28,6 @@ except ImportError:
     sys.exit(1)
 
 import config
-
-# --- 설정 ---
-DB_FILE = Path(__file__).parent / "news.db"
-CACHE_FILE = Path(__file__).parent / ".notion_synced.txt"
 
 NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
 # 필수 환경변수 — 값이 없으면 사용 지점에서 명확한 에러로 알림:
@@ -83,18 +75,8 @@ ALLOWED_KEYWORDS = {
 RATE_DELAY = 0.35
 
 
-def load_synced_urls():
-    if CACHE_FILE.exists():
-        return set(CACHE_FILE.read_text(encoding="utf-8").splitlines())
-    return set()
-
-
-def save_synced_urls(urls):
-    CACHE_FILE.write_text("\n".join(sorted(urls)), encoding="utf-8")
-
-
 def build_page(row):
-    """SQLite 행 → Notion 페이지 properties (정규 Notion API 포맷).
+    """crawl 결과 dict → Notion 페이지 properties (정규 Notion API 포맷).
 
     각 property는 반드시 해당 type key ('title', 'rich_text', 'select', 'multi_select',
     'date', 'url')로 감싸야 한다. shorthand는 새 API에서 400 에러.
@@ -129,85 +111,8 @@ def build_page(row):
     return props
 
 
-def fetch_articles(since_iso=None):
-    """news.db에서 기사 조회. since_iso 이후만."""
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    q = "SELECT * FROM articles"
-    params = []
-    if since_iso:
-        q += " WHERE first_seen >= ?"
-        params.append(since_iso)
-    q += " ORDER BY first_seen DESC"
-    return list(conn.execute(q, params))
-
-
 class NotionTokenMissing(RuntimeError):
-    """NOTION_TOKEN 환경변수 미설정."""
-
-
-def sync(backfill=False):
-    """반환: dict(added, failed, total, synced_total, message)."""
-    token = os.environ.get("NOTION_TOKEN") or NOTION_TOKEN
-    if not token:
-        raise NotionTokenMissing(
-            "환경변수 NOTION_TOKEN 미설정. "
-            "https://www.notion.so/my-integrations 에서 통합 앱을 만들고 "
-            "Internal Integration Token(secret_xxxxx)을 발급받은 뒤 등록해 주세요."
-        )
-    db_id = os.environ.get("NOTION_DB_ID") or NOTION_DB_ID
-    if not db_id:
-        raise NotionTokenMissing("환경변수 NOTION_DB_ID 미설정.")
-
-    notion = Client(auth=token)
-    synced = load_synced_urls()
-    articles = fetch_articles()
-
-    print(f"news.db 총 {len(articles)}건 · 이미 동기화: {len(synced)}건")
-
-    to_add = [a for a in articles if a["url"] not in synced]
-    if not backfill:
-        # 신규만 append 모드에서는 최근 100건 이내로 제한 (rate limit 방어)
-        to_add = to_add[:100]
-
-    if not to_add:
-        print("추가할 신규 기사 없음")
-        return {
-            "added": 0,
-            "failed": 0,
-            "total": 0,
-            "synced_total": len(synced),
-            "message": "추가할 신규 기사가 없습니다.",
-        }
-
-    print(f"→ Notion에 {len(to_add)}건 추가 시작...")
-    added, failed = 0, 0
-    for i, row in enumerate(to_add, 1):
-        try:
-            notion.pages.create(
-                parent={"database_id": db_id},
-                properties=build_page(row),
-            )
-            synced.add(row["url"])
-            added += 1
-            if i % 10 == 0 or i == len(to_add):
-                print(f"  [{i}/{len(to_add)}] {row['title'][:40]}")
-                save_synced_urls(synced)  # 중간 저장
-        except Exception as e:
-            failed += 1
-            print(f"  실패({row['url'][-30:]}): {e}")
-        time.sleep(RATE_DELAY)
-
-    save_synced_urls(synced)
-    msg = f"추가 {added}건 · 실패 {failed}건 · 누적 동기화 {len(synced)}건"
-    print(f"완료 — {msg}")
-    return {
-        "added": added,
-        "failed": failed,
-        "total": len(to_add),
-        "synced_total": len(synced),
-        "message": msg,
-    }
+    """필수 Notion 환경변수(NOTION_TOKEN 등) 미설정."""
 
 
 # --------------------------------------------------------------------------
@@ -501,18 +406,13 @@ def update_summary_page(page_id=None, articles=None):
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--backfill", action="store_true",
-                   help="전체 백필 (기본은 최근 100건만)")
-    p.add_argument("--summary-only", action="store_true",
-                   help="크롤/push 없이 요약 페이지만 갱신")
-    args = p.parse_args()
+    p = argparse.ArgumentParser(
+        description="Notion 요약 대시보드 페이지만 갱신 (크롤·push는 run_headless.py)."
+    )
+    p.parse_args()
     try:
-        if args.summary_only:
-            r = update_summary_page()
-            print(f"요약 갱신 완료 — total={r['total']} today={r['today']}")
-        else:
-            sync(backfill=args.backfill)
+        r = update_summary_page()
+        print(f"요약 갱신 완료 — total={r['total']} today={r['today']}")
     except NotionTokenMissing as e:
         print(str(e))
         sys.exit(1)
