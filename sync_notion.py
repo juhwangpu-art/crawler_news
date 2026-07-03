@@ -98,17 +98,39 @@ def save_synced_urls(urls):
 
 
 def build_page(row):
-    """SQLite 행 → Notion 페이지 properties."""
+    """SQLite 행 → Notion 페이지 properties (정규 Notion API 포맷).
+
+    각 property는 반드시 해당 type key ('title', 'rich_text', 'select', 'multi_select',
+    'date', 'url')로 감싸야 한다. shorthand는 새 API에서 400 에러.
+    """
     kws = [k for k in (row["keywords"] or "").split(",") if k in ALLOWED_KEYWORDS]
-    return {
-        "제목": [{"text": {"content": (row["title"] or "")[:2000]}}],
-        "감성": {"name": SENTIMENT_MAP.get(row["sentiment"], "· 중립")},
-        "매체": [{"text": {"content": (row["press"] or "")[:100]}}],
-        "키워드": [{"name": k} for k in kws],
-        "발행": [{"text": {"content": (row["pub_text"] or "")[:100]}}],
-        "수집시각": {"start": row["first_seen"]},
-        "링크": row["url"],
+    title_text = (row["title"] or "")[:2000] or " "
+    press_text = (row["press"] or "")[:100]
+    pub_text = (row["pub_text"] or "")[:100]
+    first_seen = row["first_seen"] or None
+
+    props = {
+        "제목": {
+            "title": [{"type": "text", "text": {"content": title_text}}]
+        },
+        "감성": {
+            "select": {"name": SENTIMENT_MAP.get(row["sentiment"], "· 중립")}
+        },
+        "매체": {
+            "rich_text": [{"type": "text", "text": {"content": press_text}}]
+        },
+        "키워드": {
+            "multi_select": [{"name": k} for k in kws]
+        },
+        "발행": {
+            "rich_text": [{"type": "text", "text": {"content": pub_text}}]
+        },
+        "링크": {"url": row["url"] or None},
     }
+    # 수집시각: 값이 있을 때만 (Notion date property는 None이면 에러)
+    if first_seen:
+        props["수집시각"] = {"date": {"start": first_seen}}
+    return props
 
 
 def fetch_articles(since_iso=None):
