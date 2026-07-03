@@ -52,10 +52,22 @@ NOTION_SUMMARY_PAGE_ID = os.environ.get(
 
 KST = datetime.timezone(datetime.timedelta(hours=9))
 
-# 요약 페이지에서 이 heading 아래 블록만 자동 재생성.
-# 첫 실행 시 페이지 맨 아래에 이 heading을 만들고, 그 뒤에 통계 블록을 append.
-# 이후 실행에서 이 heading을 찾아 그 뒤를 통째로 삭제하고 다시 append.
+# 요약 페이지 자동 관리 영역을 두 개의 sentinel로 감싸서 안전하게 재생성.
+# 시작 sentinel과 끝 sentinel 사이의 블록만 삭제 대상.
+# 두 sentinel 다 있어야만 삭제 실행 (한쪽만 있으면 no-op으로 append).
+# 추가 방어: PROTECTED_BLOCK_TYPES는 그 안에 있어도 절대 삭제하지 않는다.
 SUMMARY_SENTINEL = "📊 자동 갱신 통계 (아래는 스크립트가 관리)"
+SUMMARY_SENTINEL_END = "🔒 자동 갱신 영역 끝 (여기까지 스크립트 관리)"
+
+# 삭제 금지 블록 타입 — 원본 데이터(DB·페이지) 트래시 방지
+PROTECTED_BLOCK_TYPES = frozenset({
+    "child_database",   # 인라인 DB — 삭제 시 원본 DB가 휴지통으로 감
+    "child_page",       # 인라인 페이지 — 삭제 시 원본 페이지가 휴지통으로 감
+    "link_to_page",     # 페이지 링크 — 원본은 안 사라지지만 사용자 링크
+    "synced_block",     # 동기화 블록
+    "table",            # 테이블 (사용자가 만들었을 수 있음)
+    "column_list", "column",  # 다단 레이아웃
+})
 
 SENTIMENT_MAP = {
     "positive": "👍 긍정",
@@ -328,6 +340,11 @@ def build_summary_blocks(stats, last_updated_iso):
         blocks.append(_para("(집계 데이터 없음)"))
     for name, cnt in top20:
         blocks.append(_bullet(f"{name}: {cnt:,}건"))
+    # 마지막: 끝 sentinel — 이 표시 사이만 재작성 영역
+    blocks.append({
+        "type": "heading_1",
+        "heading_1": {"rich_text": _text(SUMMARY_SENTINEL_END)},
+    })
     return blocks
 
 
@@ -346,23 +363,40 @@ def _list_page_children(notion, page_id):
     return out
 
 
-def _find_sentinel_index(children):
-    """SUMMARY_SENTINEL heading의 인덱스. 없으면 None."""
+def _find_heading_index(children, text_target):
+    """heading_1 중 텍스트가 text_target과 일치하는 첫 인덱스. 없으면 None."""
     for i, b in enumerate(children):
         if b.get("type") != "heading_1":
             continue
         rt = b["heading_1"].get("rich_text") or []
-        text = "".join(r.get("plain_text", "") for r in rt)
-        if text.strip() == SUMMARY_SENTINEL.strip():
+        text = "".join(r.get("plain_text", "") for r in rt).strip()
+        if text == text_target.strip():
             return i
     return None
 
 
+def _safe_delete_range(children, start_idx, end_idx):
+    """start_idx ~ end_idx (양끝 포함) 범위 블록 중 PROTECTED가 아닌 것만 반환."""
+    out = []
+    for i in range(start_idx, end_idx + 1):
+        b = children[i]
+        if b.get("type") in PROTECTED_BLOCK_TYPES:
+            print(f"  [PROTECT] index={i} type={b['type']} — 삭제 스킵")
+            continue
+        out.append(b)
+    return out
+
+
 def update_summary_page(page_id=None, articles=None):
-    """Crawler_News 페이지의 sentinel 아래 통계 블록을 재작성.
+    """Crawler_News 페이지의 sentinel 사이 통계 블록을 안전하게 재작성.
+
+    안전 규칙:
+    1. 시작·끝 sentinel 두 개가 모두 있어야만 그 사이를 재생성.
+    2. sentinel 사이라도 child_database·child_page 같은 PROTECTED 타입은 삭제 안 함.
+    3. sentinel 하나만 있거나 없으면 append만 (기존 삭제 없음).
 
     articles: 미리 조회한 list. None이면 이 함수 안에서 Notion을 조회.
-    반환: dict(total, today, added_blocks, deleted_blocks).
+    반환: dict(total, today, added_blocks, deleted_blocks, mode).
     """
     token = os.environ.get("NOTION_TOKEN") or NOTION_TOKEN
     if not token:
@@ -378,13 +412,25 @@ def update_summary_page(page_id=None, articles=None):
     now_iso = datetime.datetime.now(KST).isoformat(timespec="seconds")
     new_blocks = build_summary_blocks(stats, now_iso)
 
-    # 기존 children 조회 → sentinel 이후를 삭제
     children = _list_page_children(notion, page_id)
-    sentinel_idx = _find_sentinel_index(children)
-    to_delete = children[sentinel_idx:] if sentinel_idx is not None else []
+    start_idx = _find_heading_index(children, SUMMARY_SENTINEL)
+    end_idx = _find_heading_index(children, SUMMARY_SENTINEL_END)
+
+    to_delete = []
+    mode = "append-only"
+    if start_idx is not None and end_idx is not None and end_idx >= start_idx:
+        to_delete = _safe_delete_range(children, start_idx, end_idx)
+        mode = "replace-between-sentinels"
+    elif start_idx is not None or end_idx is not None:
+        # 한쪽만 있음 — 위험 상황이므로 삭제하지 말고 append만
+        print(
+            f"[summary] WARNING: sentinel 한쪽만 발견 "
+            f"(start={start_idx}, end={end_idx}). 삭제 없이 append만 진행."
+        )
+
     print(
-        f"[summary] children={len(children)}, sentinel_idx={sentinel_idx}, "
-        f"delete={len(to_delete)}, new={len(new_blocks)}"
+        f"[summary] children={len(children)}, start={start_idx}, end={end_idx}, "
+        f"delete={len(to_delete)}, new={len(new_blocks)}, mode={mode}"
     )
     for b in to_delete:
         try:
@@ -404,6 +450,7 @@ def update_summary_page(page_id=None, articles=None):
         "today": stats["today"],
         "added_blocks": len(new_blocks),
         "deleted_blocks": len(to_delete),
+        "mode": mode,
     }
 
 
