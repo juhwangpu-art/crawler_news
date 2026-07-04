@@ -84,9 +84,13 @@ def main():
     to_push = [a for a in merged.values() if a["url"] not in existing]
     print(f"신규 push 대상: {len(to_push)}건")
 
-    alert_user_id = os.environ.get("NOTION_ALERT_USER_ID")
-    if not alert_user_id:
+    # NOTION_ALERT_USER_ID는 콤마로 여러 명 지정 가능. 예: "uuid1,uuid2"
+    alert_users_raw = os.environ.get("NOTION_ALERT_USER_ID", "")
+    alert_user_ids = [u.strip() for u in alert_users_raw.split(",") if u.strip()]
+    if not alert_user_ids:
         print("(NOTION_ALERT_USER_ID 미설정 — 자사 부정 기사 코멘트 알림 스킵)")
+    else:
+        print(f"알림 대상자 {len(alert_user_ids)}명")
 
     added, failed, alerted = 0, 0, 0
     pushed_articles = []
@@ -109,12 +113,12 @@ def main():
             })
 
             # 알림 조건: 자사 관련 키워드 매칭 + 감성 부정 → 담당자 mention 코멘트
-            if alert_user_id and a.get("sentiment") == config.ALERT_SENTIMENT:
+            if alert_user_ids and a.get("sentiment") == config.ALERT_SENTIMENT:
                 kws = set(a["keyword"].split(","))
                 matched = kws.intersection(config.ALERT_KEYWORDS)
                 if matched:
                     try:
-                        add_alert_comment(notion, resp["id"], alert_user_id, matched)
+                        add_alert_comment(notion, resp["id"], alert_user_ids, matched)
                         alerted += 1
                         print(f"  🔔 alert: {'·'.join(sorted(matched))} · {(a['title'] or '')[:30]}")
                     except Exception as e:

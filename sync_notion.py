@@ -115,25 +115,33 @@ class NotionTokenMissing(RuntimeError):
     """필수 Notion 환경변수(NOTION_TOKEN 등) 미설정."""
 
 
-def add_alert_comment(notion, page_id, user_id, keywords_matched):
+def add_alert_comment(notion, page_id, user_ids, keywords_matched):
     """페이지에 담당자 mention을 포함한 코멘트를 추가.
 
-    형식: "@Juhwan Lee 키워드1·키워드2 | 부정 기사 확인 필요"
+    user_ids: 단일 UUID 문자열 또는 여러 UUID의 리스트. 리스트일 때는
+              멘션이 나열되며 각 대상자 모두에게 알림이 간다.
+    형식: "@User1 @User2 키워드1·키워드2 | 부정 기사 확인 필요"
     """
+    if isinstance(user_ids, str):
+        user_ids = [user_ids]
+    user_ids = [u for u in user_ids if u]  # 빈 값 제거
+    if not user_ids:
+        raise ValueError("user_ids 비어있음")
+
+    rich_text = []
+    for i, uid in enumerate(user_ids):
+        if i > 0:
+            rich_text.append({"type": "text", "text": {"content": " "}})
+        rich_text.append({
+            "type": "mention",
+            "mention": {"type": "user", "user": {"id": uid}},
+        })
     kw_text = "·".join(sorted(keywords_matched))
-    notion.comments.create(
-        parent={"page_id": page_id},
-        rich_text=[
-            {
-                "type": "mention",
-                "mention": {"type": "user", "user": {"id": user_id}},
-            },
-            {
-                "type": "text",
-                "text": {"content": f" {kw_text} | 부정 기사 확인 필요"},
-            },
-        ],
-    )
+    rich_text.append({
+        "type": "text",
+        "text": {"content": f" {kw_text} | 부정 기사 확인 필요"},
+    })
+    notion.comments.create(parent={"page_id": page_id}, rich_text=rich_text)
 
 
 # --------------------------------------------------------------------------
