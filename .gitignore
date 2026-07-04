@@ -10,3 +10,6 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# 세션 이어가기 컨텍스트 (Notion ID·UUID 포함, GitHub 미노출)
+CLAUDE.md
