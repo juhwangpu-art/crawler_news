@@ -1,11 +1,9 @@
 name: Crawl and sync to Notion
 
-# 30분마다 실행. GitHub Actions cron은 정확한 시각을 보장하지 않고
-# 실제로는 5~15분 지연되는 경우가 잦다. 뉴스 수집엔 문제 없음.
+# 외부 크론 (cron-job.org)이 매 30분 workflow_dispatch API를 호출한다.
+# GitHub 자체 schedule은 신뢰성이 낮아서(지연·skip 잦음) 사용하지 않는다.
 on:
-  schedule:
-    - cron: "*/30 * * * *"
-  workflow_dispatch: {}   # 수동 실행 버튼
+  workflow_dispatch: {}   # 외부 크론 및 수동 실행 진입점
 
 # 크론이 겹칠 때 이전 실행을 취소하지 말고 큐잉 (한 사이클씩 순차 실행)
 concurrency:
