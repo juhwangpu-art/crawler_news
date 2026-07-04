@@ -115,6 +115,27 @@ class NotionTokenMissing(RuntimeError):
     """필수 Notion 환경변수(NOTION_TOKEN 등) 미설정."""
 
 
+def add_alert_comment(notion, page_id, user_id, keywords_matched):
+    """페이지에 담당자 mention을 포함한 코멘트를 추가.
+
+    형식: "@Juhwan Lee 키워드1·키워드2 | 부정 기사 확인 필요"
+    """
+    kw_text = "·".join(sorted(keywords_matched))
+    notion.comments.create(
+        parent={"page_id": page_id},
+        rich_text=[
+            {
+                "type": "mention",
+                "mention": {"type": "user", "user": {"id": user_id}},
+            },
+            {
+                "type": "text",
+                "text": {"content": f" {kw_text} | 부정 기사 확인 필요"},
+            },
+        ],
+    )
+
+
 # --------------------------------------------------------------------------
 # 요약 대시보드 페이지 갱신 (Crawler_News 페이지의 sentinel 아래를 재작성)
 # --------------------------------------------------------------------------

@@ -22,6 +22,7 @@ from sync_notion import (
     NOTION_DB_ID,
     RATE_DELAY,
     NotionTokenMissing,
+    add_alert_comment,
     build_page,
     fetch_all_articles,
     get_data_source_id,
@@ -83,12 +84,16 @@ def main():
     to_push = [a for a in merged.values() if a["url"] not in existing]
     print(f"신규 push 대상: {len(to_push)}건")
 
-    added, failed = 0, 0
+    alert_user_id = os.environ.get("NOTION_ALERT_USER_ID")
+    if not alert_user_id:
+        print("(NOTION_ALERT_USER_ID 미설정 — 자사 부정 기사 코멘트 알림 스킵)")
+
+    added, failed, alerted = 0, 0, 0
     pushed_articles = []
     for i, a in enumerate(to_push, 1):
         row = to_db_row(a, a["keyword"])
         try:
-            notion.pages.create(
+            resp = notion.pages.create(
                 parent={"database_id": db_id},
                 properties=build_page(row),
             )
@@ -102,6 +107,19 @@ def main():
                 "press": a.get("press") or "",
                 "first_seen": a.get("crawled_at"),
             })
+
+            # 알림 조건: 자사 관련 키워드 매칭 + 감성 부정 → 담당자 mention 코멘트
+            if alert_user_id and a.get("sentiment") == config.ALERT_SENTIMENT:
+                kws = set(a["keyword"].split(","))
+                matched = kws.intersection(config.ALERT_KEYWORDS)
+                if matched:
+                    try:
+                        add_alert_comment(notion, resp["id"], alert_user_id, matched)
+                        alerted += 1
+                        print(f"  🔔 alert: {'·'.join(sorted(matched))} · {(a['title'] or '')[:30]}")
+                    except Exception as e:
+                        print(f"  코멘트 실패 ({(a['title'] or '')[:30]}): {e}")
+
             if i % 10 == 0 or i == len(to_push):
                 print(f"  [{i}/{len(to_push)}] {(a['title'] or '')[:40]}")
         except Exception as e:
@@ -109,7 +127,7 @@ def main():
             print(f"  실패 {a['url'][-30:]}: {e}")
         time.sleep(RATE_DELAY)
 
-    print(f"\n완료 — 추가 {added}건 · 실패 {failed}건 · Notion 누적 {len(existing) + added}건")
+    print(f"\n완료 — 추가 {added}건 · 실패 {failed}건 · 알림 {alerted}건 · Notion 누적 {len(existing) + added}건")
 
     # 요약 페이지 갱신 (기존 + 이번에 push된 것 합쳐서 통계)
     try:

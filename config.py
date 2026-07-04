@@ -28,6 +28,12 @@ MAX_PER_KEYWORD = 30
 # 요청 사이 대기(초) — 과도한 요청 방지 (봇 차단 회피용, 실제로는 ±지터 적용)
 REQUEST_DELAY_SEC = 1.5
 
+# 알림 대상 키워드 — 이 키워드가 걸린 기사 중 감성이 '부정'이면
+# Notion 페이지에 담당자를 mention하는 코멘트를 자동으로 남긴다.
+ALERT_KEYWORDS = {"키움증권", "키움증권 김익래", "김익래"}
+ALERT_SENTIMENT = "negative"  # crawler에서 부여하는 label과 일치
+
+
 # Notion multi-select 옵션 색상. 그룹별로 같은 색을 할당해서
 # DB에서 어떤 카테고리인지 시각적으로 구분되도록 한다.
 # 유효 색상: default, gray, brown, orange, yellow, green, blue, purple, pink, red
